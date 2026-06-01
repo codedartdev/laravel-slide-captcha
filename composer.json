@@ -1,0 +1,43 @@
+{
+    "name": "codedart/laravel-slide-captcha",
+    "description": "Self-hosted slide CAPTCHA package for Laravel.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "CodeDart\\SlideCaptcha\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=7.4",
+        "ext-gd": "*",
+        "illuminate/support": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "illuminate/routing": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "illuminate/cache": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "illuminate/filesystem": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "illuminate/http": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "illuminate/validation": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+        "intervention/image": "^2.7|^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "CodeDart\\SlideCaptcha\\SlideCaptchaServiceProvider"
+            ]
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CodeDart\\SlideCaptcha\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "build-assets": "php bin/build-assets",
+        "test": "phpunit"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -1,0 +1,179 @@
+#!/usr/bin/env php
+<?php
+
+$root = dirname(__DIR__);
+$sourceDir = $root . '/resources/assets';
+$distDir = $root . '/resources/dist';
+
+if (! is_dir($distDir)) {
+    mkdir($distDir, 0755, true);
+}
+
+$js = file_get_contents($sourceDir . '/slide-captcha.js');
+$css = file_get_contents($sourceDir . '/slide-captcha.css');
+
+if (! is_string($js) || ! is_string($css)) {
+    fwrite(STDERR, "Unable to read source assets.\n");
+    exit(1);
+}
+
+file_put_contents($distDir . '/slide-captcha.min.js', minifyJs($js));
+file_put_contents($distDir . '/slide-captcha.min.css', minifyCss($css));
+
+echo "Built resources/dist/slide-captcha.min.js\n";
+echo "Built resources/dist/slide-captcha.min.css\n";
+
+function minifyCss($css)
+{
+    $css = preg_replace('!/\*.*?\*/!s', '', $css);
+    $css = preg_replace('/\s+/', ' ', $css);
+    $css = preg_replace('/\s*([{}:;,>])\s*/', '$1', $css);
+    $css = str_replace(';}', '}', $css);
+
+    return trim($css) . "\n";
+}
+
+function minifyJs($js)
+{
+    $tokens = stripJsComments($js);
+    $output = '';
+    $length = strlen($tokens);
+    $inString = false;
+    $stringQuote = '';
+    $escape = false;
+    $previous = '';
+
+    for ($index = 0; $index < $length; $index++) {
+        $char = $tokens[$index];
+
+        if ($inString) {
+            $output .= $char;
+
+            if ($escape) {
+                $escape = false;
+            } elseif ($char === '\\') {
+                $escape = true;
+            } elseif ($char === $stringQuote) {
+                $inString = false;
+                $stringQuote = '';
+            }
+
+            $previous = $char;
+            continue;
+        }
+
+        if ($char === '"' || $char === "'" || $char === '`') {
+            $inString = true;
+            $stringQuote = $char;
+            $output .= $char;
+            $previous = $char;
+            continue;
+        }
+
+        if (ctype_space($char)) {
+            $next = nextNonWhitespace($tokens, $index + 1);
+
+            if (needsSpace($previous, $next)) {
+                $output .= ' ';
+                $previous = ' ';
+            }
+
+            continue;
+        }
+
+        if (strpos('{}[]();,:+-*/%=<>!&|?', $char) !== false) {
+            $output = rtrim($output);
+            $output .= $char;
+            $previous = $char;
+            continue;
+        }
+
+        $output .= $char;
+        $previous = $char;
+    }
+
+    return trim($output) . "\n";
+}
+
+function stripJsComments($js)
+{
+    $output = '';
+    $length = strlen($js);
+    $inString = false;
+    $stringQuote = '';
+    $escape = false;
+
+    for ($index = 0; $index < $length; $index++) {
+        $char = $js[$index];
+        $next = $index + 1 < $length ? $js[$index + 1] : '';
+
+        if ($inString) {
+            $output .= $char;
+
+            if ($escape) {
+                $escape = false;
+            } elseif ($char === '\\') {
+                $escape = true;
+            } elseif ($char === $stringQuote) {
+                $inString = false;
+                $stringQuote = '';
+            }
+
+            continue;
+        }
+
+        if ($char === '"' || $char === "'" || $char === '`') {
+            $inString = true;
+            $stringQuote = $char;
+            $output .= $char;
+            continue;
+        }
+
+        if ($char === '/' && $next === '/') {
+            while ($index < $length && $js[$index] !== "\n") {
+                $index++;
+            }
+
+            $output .= "\n";
+            continue;
+        }
+
+        if ($char === '/' && $next === '*') {
+            $index += 2;
+
+            while ($index < $length - 1 && ! ($js[$index] === '*' && $js[$index + 1] === '/')) {
+                $index++;
+            }
+
+            $index++;
+            continue;
+        }
+
+        $output .= $char;
+    }
+
+    return $output;
+}
+
+function nextNonWhitespace($string, $start)
+{
+    $length = strlen($string);
+
+    for ($index = $start; $index < $length; $index++) {
+        if (! ctype_space($string[$index])) {
+            return $string[$index];
+        }
+    }
+
+    return '';
+}
+
+function needsSpace($previous, $next)
+{
+    if ($previous === '' || $next === '') {
+        return false;
+    }
+
+    return preg_match('/[A-Za-z0-9_$]/', $previous) === 1
+        && preg_match('/[A-Za-z0-9_$]/', $next) === 1;
+}
