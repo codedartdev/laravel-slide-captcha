@@ -25,7 +25,7 @@ class SlideCaptchaAssetController extends Controller
 
         return response(file_get_contents($path), 200, [
             'Content-Type' => $allowed[$file],
-            'Cache-Control' => 'public, max-age=' . max(0, (int) config('slide-captcha.asset_cache_ttl', 86400)),
+            'Cache-Control' => 'public, max-age=' . max(0, (int) config('captcha.asset_cache_ttl', 86400)),
         ]);
     }
 

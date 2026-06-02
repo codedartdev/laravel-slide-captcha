@@ -12,7 +12,7 @@ class SlideCaptchaVerified implements Rule
 
     public function passes($attribute, $value)
     {
-        if (! config('slide-captcha.enabled')) {
+        if (! config('captcha.enabled')) {
             return true;
         }
 
@@ -40,7 +40,7 @@ class SlideCaptchaVerified implements Rule
 
     protected function cache()
     {
-        $store = config('slide-captcha.cache_store');
+        $store = config('captcha.cache_store');
 
         return $store ? Cache::store($store) : Cache::store();
     }

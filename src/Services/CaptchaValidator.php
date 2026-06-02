@@ -34,7 +34,7 @@ class CaptchaValidator
         }
 
         $createdAt = (int) ($challenge['created_at'] ?? 0);
-        $ttl = max(1, (int) config('slide-captcha.ttl', 120));
+        $ttl = max(1, (int) config('captcha.ttl', 120));
 
         if ($createdAt > 0 && (time() - $createdAt) > $ttl) {
             $this->forgetChallenge($cache, $challengeKey, $challenge);
@@ -42,7 +42,7 @@ class CaptchaValidator
             return $this->failure('expired', 'O desafio do CAPTCHA expirou.');
         }
 
-        if (config('slide-captcha.validate_movement', true)) {
+        if (config('captcha.validate_movement', true)) {
             $movementResult = $this->movementAnalyzer->analyze($movement);
 
             if (! $movementResult['success']) {
@@ -57,7 +57,7 @@ class CaptchaValidator
             + pow($y - (float) $challenge['target_y'], 2)
         );
 
-        if ($distance > (float) config('slide-captcha.tolerance', 8)) {
+        if ($distance > (float) config('captcha.tolerance', 8)) {
             $this->forgetChallenge($cache, $challengeKey, $challenge);
 
             return $this->failure('invalid_position', 'A posição enviada não confere com o desafio.', [
@@ -76,7 +76,7 @@ class CaptchaValidator
                 (float) $rotation,
                 (float) ($challenge['target_rotation'] ?? 0)
             );
-            $rotationTolerance = (float) ($challenge['rotation_tolerance'] ?? config('slide-captcha.rotation.tolerance_degrees', 8));
+            $rotationTolerance = (float) ($challenge['rotation_tolerance'] ?? config('captcha.rotation.tolerance_degrees', 8));
 
             if ($rotationDistance > $rotationTolerance) {
                 $this->forgetChallenge($cache, $challengeKey, $challenge);
@@ -144,13 +144,13 @@ class CaptchaValidator
 
     protected function cache()
     {
-        $store = config('slide-captcha.cache_store');
+        $store = config('captcha.cache_store');
 
         return $store ? Cache::store($store) : Cache::store();
     }
 
     protected function storage()
     {
-        return Storage::disk((string) config('slide-captcha.storage_disk', 's3'));
+        return Storage::disk((string) config('captcha.storage_disk', 's3'));
     }
 }

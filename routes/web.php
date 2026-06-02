@@ -4,8 +4,8 @@ use CodeDart\SlideCaptcha\Http\Controllers\SlideCaptchaAssetController;
 use CodeDart\SlideCaptcha\Http\Controllers\SlideCaptchaController;
 use Illuminate\Support\Facades\Route;
 
-$prefix = trim((string) config('slide-captcha.route_prefix', 'slide-captcha'), '/');
-$middleware = config('slide-captcha.middleware', ['web']);
+$prefix = trim((string) config('captcha.route_prefix', 'slide-captcha'), '/');
+$middleware = config('captcha.middleware', ['web']);
 
 Route::prefix($prefix)
     ->middleware($middleware)

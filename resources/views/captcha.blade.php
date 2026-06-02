@@ -8,9 +8,9 @@
     data-slide-captcha
     data-slide-captcha-new-url="{{ route('slide-captcha.new') }}"
     data-slide-captcha-verify-url="{{ route('slide-captcha.verify') }}"
-    data-slide-captcha-width="{{ (int) config('slide-captcha.image_width') }}"
-    data-slide-captcha-height="{{ (int) config('slide-captcha.image_height') }}"
-    style="--slide-captcha-width: {{ (int) config('slide-captcha.image_width') }}; --slide-captcha-height: {{ (int) config('slide-captcha.image_height') }};"
+    data-slide-captcha-width="{{ (int) config('captcha.image_width') }}"
+    data-slide-captcha-height="{{ (int) config('captcha.image_height') }}"
+    style="--slide-captcha-width: {{ (int) config('captcha.image_width') }}; --slide-captcha-height: {{ (int) config('captcha.image_height') }};"
 >
     <div class="slide-captcha__stage" data-slide-captcha-stage>
         <img class="slide-captcha__background" data-slide-captcha-background alt="">

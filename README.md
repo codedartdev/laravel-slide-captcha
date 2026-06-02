@@ -164,6 +164,11 @@ SLIDE_CAPTCHA_MOVEMENT_MIN_POINTS=8
 SLIDE_CAPTCHA_MOVEMENT_MIN_DURATION_MS=250
 SLIDE_CAPTCHA_MOVEMENT_MAX_DURATION_MS=15000
 SLIDE_CAPTCHA_MOVEMENT_MAX_SAME_Y_RATIO=0.9
+
+SLIDE_CAPTCHA_DDOS_ENABLED=true
+SLIDE_CAPTCHA_DDOS_MODE=adaptive
+SLIDE_CAPTCHA_DDOS_REPORTING_SINKS=cache
+SLIDE_CAPTCHA_DDOS_BROADCAST_ENABLED=auto
 ```
 
 ### Variáveis disponíveis
@@ -282,6 +287,211 @@ Duração máxima do movimento, em milissegundos.
 
 Proporção máxima permitida de movimentos com o mesmo eixo Y. Ajuda a rejeitar movimentos muito lineares.
 
+### Proteção DDoS e relatórios de ataque
+
+O pacote inclui uma camada adaptativa para proteger os endpoints internos do CAPTCHA.
+
+Ela atua antes da geração de imagem em:
+
+```text
+GET /slide-captcha/new
+```
+
+E registra sinais suspeitos em:
+
+```text
+POST /slide-captcha/verify
+```
+
+A identidade padrão combina:
+
+- IP do request.
+- Hash do user-agent.
+- Hash da sessão Laravel, quando existir.
+
+Quando uma identidade excede os limites, o pacote responde com `429`:
+
+```json
+{
+  "success": false,
+  "reason": "ddos_protection",
+  "retry_after": 300
+}
+```
+
+O header `Retry-After` também é enviado.
+
+Configuração mínima recomendada:
+
+```env
+SLIDE_CAPTCHA_DDOS_ENABLED=true
+SLIDE_CAPTCHA_DDOS_MODE=adaptive
+SLIDE_CAPTCHA_DDOS_NEW_MAX_ATTEMPTS=60
+SLIDE_CAPTCHA_DDOS_NEW_DECAY_SECONDS=60
+SLIDE_CAPTCHA_DDOS_NEW_BLOCK_SECONDS=300
+SLIDE_CAPTCHA_DDOS_VERIFY_MAX_ATTEMPTS=120
+SLIDE_CAPTCHA_DDOS_VERIFY_DECAY_SECONDS=60
+SLIDE_CAPTCHA_DDOS_VERIFY_BLOCK_SECONDS=300
+SLIDE_CAPTCHA_DDOS_FAILURE_MAX_ATTEMPTS=20
+SLIDE_CAPTCHA_DDOS_FAILURE_DECAY_SECONDS=60
+SLIDE_CAPTCHA_DDOS_FAILURE_BLOCK_SECONDS=600
+SLIDE_CAPTCHA_DDOS_SCORE_THRESHOLD=80
+SLIDE_CAPTCHA_DDOS_SCORE_DECAY_SECONDS=120
+SLIDE_CAPTCHA_DDOS_SCORE_BLOCK_SECONDS=600
+```
+
+Use `SLIDE_CAPTCHA_DDOS_MODE=monitor` se quiser apenas observar e emitir relatórios, sem bloquear tráfego.
+
+#### Persistência dos relatórios
+
+Os relatórios são gravados por sinks configuráveis.
+
+O padrão é cache temporário:
+
+```env
+SLIDE_CAPTCHA_DDOS_REPORTING_SINKS=cache
+SLIDE_CAPTCHA_DDOS_CACHE_TTL=3600
+SLIDE_CAPTCHA_DDOS_CACHE_LIMIT=500
+```
+
+Você também pode ativar múltiplos sinks:
+
+```env
+SLIDE_CAPTCHA_DDOS_REPORTING_SINKS=cache,s3_batch
+```
+
+Sinks disponíveis:
+
+- `none`: não persiste; apenas emite eventos em tempo real para listeners/broadcast.
+- `cache`: mantém uma janela temporária em cache/Redis.
+- `database`: grava linha a linha em uma tabela.
+- `s3_batch`: acumula em cache e descarrega em arquivo `.jsonl` no disco configurado.
+
+Para usar banco, publique a migration:
+
+```bash
+php artisan vendor:publish --tag=slide-captcha-migrations
+php artisan migrate
+```
+
+Depois configure:
+
+```env
+SLIDE_CAPTCHA_DDOS_REPORTING_SINKS=database
+SLIDE_CAPTCHA_DDOS_DATABASE_TABLE=slide_captcha_attack_reports
+```
+
+Para usar batch em S3 ou storage compatível:
+
+```env
+SLIDE_CAPTCHA_DDOS_REPORTING_SINKS=cache,s3_batch
+SLIDE_CAPTCHA_DDOS_S3_BATCH_DISK=s3
+SLIDE_CAPTCHA_DDOS_S3_BATCH_PATH=slide-captcha/attack-reports/{date}/{datetime}-{uuid}.jsonl
+SLIDE_CAPTCHA_DDOS_S3_BATCH_CACHE_TTL=3600
+```
+
+Agende o flush no scheduler da aplicação:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('slide-captcha:flush-attack-reports')->everyMinute();
+```
+
+Cada arquivo S3 usa JSON Lines: um relatório JSON por linha.
+
+#### Reverb e eventos em tempo real
+
+O pacote dispara o evento:
+
+```php
+CodeDart\SlideCaptcha\Events\SlideCaptchaAttackDetected
+```
+
+Quando `SLIDE_CAPTCHA_DDOS_BROADCAST_ENABLED=auto`, o evento só é transmitido se `broadcasting.default` estiver configurado como `reverb`.
+
+Configuração:
+
+```env
+SLIDE_CAPTCHA_DDOS_BROADCAST_ENABLED=auto
+SLIDE_CAPTCHA_DDOS_BROADCAST_CHANNEL=private-slide-captcha.attacks
+SLIDE_CAPTCHA_DDOS_BROADCAST_EVENT=slide-captcha.attack
+```
+
+Payload do relatório:
+
+```json
+{
+  "id": "9f7a2f4f4c3d4c6d91dbff9b82b02c1e",
+  "occurred_at": "2026-06-01T12:00:00-03:00",
+  "occurred_at_timestamp": 1780329600,
+  "action": "blocked",
+  "severity": "critical",
+  "endpoint": "new",
+  "reason": "rate_limit_new",
+  "ip": "203.0.113.10",
+  "identity_hash": "sha256...",
+  "user_agent_hash": "sha256...",
+  "session_hash": "sha256...",
+  "retry_after": 300,
+  "score": 84,
+  "limit_key": "slide_captcha_ddos:rate:new:...",
+  "request_method": "GET",
+  "request_path": "slide-captcha/new",
+  "details": {
+    "attempts": 61,
+    "max_attempts": 60
+  }
+}
+```
+
+Motivos comuns de ataque ou suspeita:
+
+- `rate_limit_new`
+- `rate_limit_verify`
+- `failure_limit`
+- `score_threshold`
+- `validation_failed`
+- `not_found`
+- `used`
+- `expired`
+- `invalid_position`
+- `invalid_rotation`
+- `movement_too_short`
+- `movement_too_fast`
+- `movement_too_slow`
+- `movement_too_linear`
+
+#### Métricas para dashboard próprio
+
+Este pacote não renderiza dashboard. Para consultar métricas e montar sua própria tela, injete `SlideCaptchaMetrics`.
+
+Exemplo mínimo:
+
+```php
+<?php
+
+use CodeDart\SlideCaptcha\Services\SlideCaptchaMetrics;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware(['web', 'auth'])->get('/admin/slide-captcha/metrics', function (SlideCaptchaMetrics $metrics) {
+    return response()->json($metrics->snapshot());
+});
+```
+
+O snapshot retorna:
+
+- `total_events`
+- `blocked_events`
+- `by_severity`
+- `by_endpoint`
+- `by_reason`
+- `top_ips`
+- `top_identities`
+- `last_event`
+- `events`
+- `window`
+
 ### Configuração do S3
 
 Configure o disco `s3` no `.env` da aplicação Laravel:
@@ -311,11 +521,13 @@ O usuário ou role da AWS precisa ter permissão para:
 
 Não é obrigatório publicar a configuração.
 
-Se quiser customizar o arquivo `config/slide-captcha.php`, rode:
+Se quiser customizar o arquivo `config/captcha.php`, rode:
 
 ```bash
-php artisan vendor:publish --tag=slide-captcha-config
+php artisan vendor:publish --tag=captcha-config
 ```
+
+Também é possível usar a tag antiga `slide-captcha-config`.
 
 Depois limpe o cache de configuração:
 
@@ -406,6 +618,497 @@ class ContactController extends Controller
 ```
 
 A regra `SlideCaptchaVerified` busca o token no cache e apaga o token após o uso. Isso impede reutilização.
+
+## Frontend com React e React Native
+
+Além da view Blade incluída neste pacote, você pode usar componentes prontos para aplicações frontend modernas:
+
+- React Web: [`@codedart/slide-captcha-react`](https://github.com/codedartdev/slide-captcha-react)
+- React Native e Expo: [`@codedart/slide-captcha-react-native`](https://github.com/codedartdev/slide-captcha-react-native)
+
+Esses pacotes não substituem este backend Laravel. Eles apenas consomem os endpoints já criados por esta biblioteca:
+
+```text
+GET  /slide-captcha/new
+POST /slide-captcha/verify
+```
+
+O fluxo continua o mesmo:
+
+1. O frontend carrega um desafio.
+2. O usuário arrasta e gira a peça, quando houver rotação.
+3. O frontend envia a tentativa para `/slide-captcha/verify`.
+4. O backend retorna um token temporário.
+5. O formulário final envia `slide_captcha_token`.
+6. O Laravel valida esse token com `SlideCaptchaVerified`.
+
+### React com Laravel Vite e react-hook-form
+
+Use este caminho quando o formulário é renderizado por React dentro de uma aplicação Laravel.
+
+Instale as dependências:
+
+```bash
+npm install react react-dom react-hook-form @codedart/slide-captcha-react
+npm install -D @vitejs/plugin-react
+```
+
+Configure o Vite para compilar React.
+
+Arquivo: `vite.config.js`
+
+```js
+import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/css/app.css',
+                'resources/js/login.tsx',
+            ],
+            refresh: true,
+        }),
+        react(),
+    ],
+});
+```
+
+#### Rotas do login
+
+Arquivo: `routes/web.php`
+
+```php
+<?php
+
+use App\Http\Controllers\Auth\LoginController;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [LoginController::class, 'show'])
+        ->name('login');
+
+    Route::post('/login', [LoginController::class, 'login'])
+        ->name('login.store');
+});
+```
+
+#### Controller do login
+
+Arquivo: `app/Http/Controllers/Auth/LoginController.php`
+
+```php
+<?php
+
+namespace App\Http\Controllers\Auth;
+
+use App\Http\Controllers\Controller;
+use CodeDart\SlideCaptcha\Rules\SlideCaptchaVerified;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+
+class LoginController extends Controller
+{
+    public function show()
+    {
+        return view('auth.login');
+    }
+
+    public function login(Request $request)
+    {
+        $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+            'slide_captcha_token' => ['required', new SlideCaptchaVerified],
+        ]);
+
+        $throttleKey = Str::lower($request->input('email')) . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            throw ValidationException::withMessages([
+                'email' => 'Muitas tentativas. Aguarde alguns segundos e tente novamente.',
+            ]);
+        }
+
+        if (! Auth::attempt($request->only('email', 'password'))) {
+            RateLimiter::hit($throttleKey, 60);
+
+            throw ValidationException::withMessages([
+                'email' => 'As credenciais informadas não conferem.',
+            ]);
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        $request->session()->regenerate();
+
+        return response()->json([
+            'redirect_to' => url('/dashboard'),
+        ]);
+    }
+}
+```
+
+Quando você usa o pacote React, o campo essencial é `slide_captcha_token`. O campo `slide_captcha_verified` é usado pela view Blade padrão, mas não é obrigatório neste fluxo.
+
+#### View Blade
+
+Arquivo: `resources/views/auth/login.blade.php`
+
+```blade
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Login</title>
+
+    @viteReactRefresh
+    @vite(['resources/css/app.css', 'resources/js/login.tsx'])
+</head>
+<body>
+    <div id="login-root"></div>
+</body>
+</html>
+```
+
+#### Componente React
+
+Arquivo: `resources/js/login.tsx`
+
+```tsx
+import { SlideCaptcha } from '@codedart/slide-captcha-react';
+import '@codedart/slide-captcha-react/styles.css';
+import { createRoot } from 'react-dom/client';
+import { useForm } from 'react-hook-form';
+
+type LoginFormData = {
+    email: string;
+    password: string;
+    slide_captcha_token: string;
+};
+
+function csrfToken(): string {
+    return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || '';
+}
+
+function LoginForm() {
+    const {
+        register,
+        handleSubmit,
+        setError,
+        setValue,
+        clearErrors,
+        formState: { errors, isSubmitting },
+    } = useForm<LoginFormData>({
+        defaultValues: {
+            email: '',
+            password: '',
+            slide_captcha_token: '',
+        },
+    });
+
+    async function submit(values: LoginFormData) {
+        const response = await fetch('/login', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify(values),
+        });
+
+        if (response.status === 422) {
+            const payload = await response.json();
+
+            Object.entries(payload.errors || {}).forEach(([field, messages]) => {
+                setError(field as keyof LoginFormData, {
+                    message: Array.isArray(messages) ? messages[0] : 'Campo inválido.',
+                });
+            });
+
+            setValue('slide_captcha_token', '', { shouldValidate: true });
+            return;
+        }
+
+        if (! response.ok) {
+            setError('email', {
+                message: 'Não foi possível entrar. Tente novamente.',
+            });
+            return;
+        }
+
+        const payload = await response.json();
+        window.location.href = payload.redirect_to || '/dashboard';
+    }
+
+    return (
+        <main className="login-page">
+            <form className="login-form" onSubmit={handleSubmit(submit)}>
+                <h1>Entrar</h1>
+
+                <div>
+                    <label htmlFor="email">E-mail</label>
+                    <input
+                        id="email"
+                        type="email"
+                        autoComplete="email"
+                        {...register('email', {
+                            required: 'Informe seu e-mail.',
+                        })}
+                    />
+                    {errors.email ? <p>{errors.email.message}</p> : null}
+                </div>
+
+                <div>
+                    <label htmlFor="password">Senha</label>
+                    <input
+                        id="password"
+                        type="password"
+                        autoComplete="current-password"
+                        {...register('password', {
+                            required: 'Informe sua senha.',
+                        })}
+                    />
+                    {errors.password ? <p>{errors.password.message}</p> : null}
+                </div>
+
+                <input
+                    type="hidden"
+                    {...register('slide_captcha_token', {
+                        required: 'Resolva o CAPTCHA antes de entrar.',
+                    })}
+                />
+
+                <SlideCaptcha
+                    csrfToken={csrfToken()}
+                    onSuccess={(token) => {
+                        setValue('slide_captcha_token', token, { shouldValidate: true });
+                        clearErrors('slide_captcha_token');
+                    }}
+                    onError={() => {
+                        setValue('slide_captcha_token', '', { shouldValidate: true });
+                    }}
+                />
+
+                {errors.slide_captcha_token ? <p>{errors.slide_captcha_token.message}</p> : null}
+
+                <button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Entrando...' : 'Entrar'}
+                </button>
+            </form>
+        </main>
+    );
+}
+
+createRoot(document.getElementById('login-root') as HTMLElement).render(<LoginForm />);
+```
+
+Se o React estiver no mesmo domínio do Laravel, `baseUrl` pode ser omitido. Se estiver em outro host, configure a URL no `.env` do Vite:
+
+```env
+VITE_API_BASE_URL=https://api.example.com
+```
+
+E informe no componente:
+
+```tsx
+<SlideCaptcha
+    baseUrl={import.meta.env.VITE_API_BASE_URL}
+    csrfToken={csrfToken()}
+    onSuccess={(token) => setValue('slide_captcha_token', token, { shouldValidate: true })}
+/>
+```
+
+### React Native e Expo
+
+Use este caminho quando o CAPTCHA será usado em um aplicativo mobile.
+
+Instale o pacote:
+
+```bash
+npm install @codedart/slide-captcha-react-native
+```
+
+O app mobile precisa chamar uma URL absoluta. Em desenvolvimento, use o IP da sua máquina na rede:
+
+```text
+http://192.168.0.10:8000
+```
+
+Não use `localhost` no celular físico, porque `localhost` aponta para o próprio aparelho.
+
+Para um fluxo mobile simples, você pode expor os endpoints do CAPTCHA por `api`:
+
+```env
+SLIDE_CAPTCHA_ROUTE_PREFIX=api/slide-captcha
+SLIDE_CAPTCHA_MIDDLEWARE=api
+```
+
+Com essa configuração, use `baseUrl` apontando para `/api`:
+
+```tsx
+baseUrl="http://192.168.0.10:8000/api"
+```
+
+Se sua aplicação mobile usa Laravel Sanctum com cookies e CSRF, você também pode manter o middleware `web`, desde que envie cookies e CSRF corretamente. Para a maioria dos apps nativos, usar endpoints de API é mais simples.
+
+#### Exemplo de tela de login
+
+Arquivo: `App.tsx`
+
+```tsx
+import { useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { SlideCaptcha, SlideCaptchaError } from '@codedart/slide-captcha-react-native';
+
+const API_BASE_URL = 'http://192.168.0.10:8000/api';
+
+export default function LoginScreen() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [captchaVisible, setCaptchaVisible] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    async function submitLogin(slideCaptchaToken: string) {
+        setSubmitting(true);
+        setError('');
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    slide_captcha_token: slideCaptchaToken,
+                }),
+            });
+
+            if (! response.ok) {
+                setError('Não foi possível entrar. Confira seus dados e tente novamente.');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    return (
+        <View style={{ flex: 1, justifyContent: 'center', gap: 12, padding: 24 }}>
+            <Text>E-mail</Text>
+            <TextInput
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={{ borderWidth: 1, padding: 10 }}
+            />
+
+            <Text>Senha</Text>
+            <TextInput
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                style={{ borderWidth: 1, padding: 10 }}
+            />
+
+            {error ? <Text>{error}</Text> : null}
+
+            <Pressable disabled={submitting} onPress={() => setCaptchaVisible(true)}>
+                <Text>{submitting ? 'Entrando...' : 'Entrar'}</Text>
+            </Pressable>
+
+            <SlideCaptcha
+                baseUrl={API_BASE_URL}
+                visible={captchaVisible}
+                onRequestClose={() => setCaptchaVisible(false)}
+                onSuccess={(token) => {
+                    setCaptchaVisible(false);
+                    void submitLogin(token);
+                }}
+                onError={(captchaError) => {
+                    setSubmitting(false);
+
+                    if (captchaError instanceof SlideCaptchaError) {
+                        setError(captchaError.message);
+                        return;
+                    }
+
+                    setError('Falha ao validar o CAPTCHA.');
+                }}
+            />
+        </View>
+    );
+}
+```
+
+#### Rota de login para API
+
+Arquivo: `routes/api.php`
+
+```php
+<?php
+
+use App\Http\Controllers\Api\LoginController;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/login', [LoginController::class, 'login'])
+    ->middleware('throttle:5,1');
+```
+
+Arquivo: `app/Http/Controllers/Api/LoginController.php`
+
+```php
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use CodeDart\SlideCaptcha\Rules\SlideCaptchaVerified;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
+
+class LoginController extends Controller
+{
+    public function login(Request $request)
+    {
+        $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+            'slide_captcha_token' => ['required', new SlideCaptchaVerified],
+        ]);
+
+        $user = User::where('email', $request->input('email'))->first();
+
+        if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            throw ValidationException::withMessages([
+                'email' => 'As credenciais informadas não conferem.',
+            ]);
+        }
+
+        return response()->json([
+            'user' => $user,
+            // Retorne aqui o token usado pela sua aplicação, como Sanctum, Passport ou JWT.
+        ]);
+    }
+}
+```
+
+Em produção, use HTTPS para proteger credenciais, cookies e tokens.
 
 ## Exemplo prático em um projeto real
 
@@ -644,6 +1347,7 @@ Motivos comuns:
 - `movement_too_fast`: movimento rápido demais.
 - `movement_too_slow`: movimento lento demais.
 - `movement_too_linear`: movimento muito linear.
+- `ddos_protection`: identidade bloqueada temporariamente pela proteção adaptativa.
 
 ## Boas práticas
 

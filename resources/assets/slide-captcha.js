@@ -29,11 +29,26 @@
     function json(response) {
         return response.json().then(function (data) {
             if (! response.ok) {
+                if (! data || typeof data !== 'object') {
+                    data = {
+                        message: 'Request failed.'
+                    };
+                }
+
+                data.status = response.status;
                 throw data;
             }
 
             return data;
         });
+    }
+
+    function ddosRetryDelay(error) {
+        if (! error || error.reason !== 'ddos_protection') {
+            return 0;
+        }
+
+        return Math.max(1, parseInt(error.retry_after || 1, 10)) * 1000;
     }
 
     function init(root) {
@@ -207,7 +222,8 @@
                     clearValidation();
                     setState('error');
                     dispatch('slide-captcha:error', error);
-                    window.setTimeout(loadChallenge, 500);
+
+                    window.setTimeout(loadChallenge, ddosRetryDelay(error) || 500);
                 });
         }
 
@@ -348,6 +364,10 @@
                     clearValidation();
                     setState('error');
                     dispatch('slide-captcha:error', error);
+
+                    if (ddosRetryDelay(error)) {
+                        window.setTimeout(loadChallenge, ddosRetryDelay(error));
+                    }
                 });
         }
 
@@ -415,11 +435,17 @@
         loadChallenge();
     }
 
-    onReady(function () {
+    function initAll() {
         var captchas = document.querySelectorAll(rootSelector);
 
         for (var index = 0; index < captchas.length; index++) {
             init(captchas[index]);
         }
-    });
+    }
+
+    window.SlideCaptcha = window.SlideCaptcha || {};
+    window.SlideCaptcha.init = init;
+    window.SlideCaptcha.initAll = initAll;
+
+    onReady(initAll);
 }());

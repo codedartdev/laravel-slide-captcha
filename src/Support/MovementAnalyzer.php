@@ -14,7 +14,7 @@ class MovementAnalyzer
                 && is_numeric($point['t']);
         }));
 
-        $minPoints = max(1, (int) config('slide-captcha.movement.min_points', 8));
+        $minPoints = max(1, (int) config('captcha.movement.min_points', 8));
 
         if (count($points) < $minPoints) {
             return $this->failure('movement_too_short', 'O movimento informado para o CAPTCHA é insuficiente.');
@@ -24,11 +24,11 @@ class MovementAnalyzer
         $last = end($points);
         $duration = (float) $last['t'] - (float) $first['t'];
 
-        if ($duration < (float) config('slide-captcha.movement.min_duration_ms', 250)) {
+        if ($duration < (float) config('captcha.movement.min_duration_ms', 250)) {
             return $this->failure('movement_too_fast', 'O movimento do CAPTCHA foi rápido demais.');
         }
 
-        if ($duration > (float) config('slide-captcha.movement.max_duration_ms', 15000)) {
+        if ($duration > (float) config('captcha.movement.max_duration_ms', 15000)) {
             return $this->failure('movement_too_slow', 'O movimento do CAPTCHA demorou demais.');
         }
 
@@ -56,7 +56,7 @@ class MovementAnalyzer
 
         $sameYRatio = $sameYMovements / $movementCount;
 
-        if ($sameYRatio > (float) config('slide-captcha.movement.max_same_y_ratio', 0.9)) {
+        if ($sameYRatio > (float) config('captcha.movement.max_same_y_ratio', 0.9)) {
             return $this->failure('movement_too_linear', 'O movimento do CAPTCHA parece automatizado.');
         }
 

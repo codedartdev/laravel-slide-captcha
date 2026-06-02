@@ -26,13 +26,13 @@ class CaptchaGenerator
             throw new RuntimeException(sprintf('Não foi possível ler a imagem de fundo [%s].', $backgroundPath));
         }
 
-        $width = max(1, (int) config('slide-captcha.image_width', 320));
-        $height = max(1, (int) config('slide-captcha.image_height', 180));
+        $width = max(1, (int) config('captcha.image_width', 320));
+        $height = max(1, (int) config('captcha.image_height', 180));
 
         $challengeId = (string) Str::uuid();
         $pieceSize = $this->randomPieceSize($width, $height);
         $canvasSize = $this->pieceCanvasSize($pieceSize);
-        $rotationEnabled = (bool) config('slide-captcha.rotation.enabled', true);
+        $rotationEnabled = (bool) config('captcha.rotation.enabled', true);
         $rotationStep = $this->rotationStep();
         $targetRotation = $rotationEnabled ? $this->randomRotation($rotationStep) : 0;
         list($targetX, $targetY) = $this->randomTargetPosition($width, $height, $canvasSize);
@@ -62,14 +62,14 @@ class CaptchaGenerator
             'piece_canvas_size' => $canvasSize,
             'target_rotation' => $targetRotation,
             'rotation_enabled' => $rotationEnabled,
-            'rotation_tolerance' => max(0, (int) config('slide-captcha.rotation.tolerance_degrees', 8)),
+            'rotation_tolerance' => max(0, (int) config('captcha.rotation.tolerance_degrees', 8)),
             'background_path' => $backgroundFile,
             'piece_path' => $pieceFile,
             'ip' => $request->ip(),
             'user_agent_hash' => hash('sha256', (string) $request->userAgent()),
             'created_at' => time(),
             'used' => false,
-        ], max(1, (int) config('slide-captcha.ttl', 120)));
+        ], max(1, (int) config('captcha.ttl', 120)));
 
         return [
             'challenge_id' => $challengeId,
@@ -87,12 +87,12 @@ class CaptchaGenerator
 
     protected function configuredStoragePath($key)
     {
-        return trim((string) config('slide-captcha.' . $key), '/');
+        return trim((string) config('captcha.' . $key), '/');
     }
 
     protected function backgroundsPath()
     {
-        $configuredPath = config('slide-captcha.backgrounds_path');
+        $configuredPath = config('captcha.backgrounds_path');
 
         if (is_string($configuredPath) && trim($configuredPath) !== '') {
             return $this->normalizeLocalPath($configuredPath);
@@ -159,8 +159,8 @@ class CaptchaGenerator
             throw new RuntimeException('As dimensões configuradas para a imagem são pequenas demais para gerar a peça do CAPTCHA.');
         }
 
-        $configuredMin = (int) config('slide-captcha.piece_min_size', 42);
-        $configuredMax = (int) config('slide-captcha.piece_max_size', 58);
+        $configuredMin = (int) config('captcha.piece_min_size', 42);
+        $configuredMax = (int) config('captcha.piece_max_size', 58);
         $min = max(12, min($configuredMin, $maxAllowed));
         $max = max($min, min($configuredMax, $maxAllowed));
 
@@ -174,12 +174,12 @@ class CaptchaGenerator
 
     protected function rotationStep()
     {
-        return max(1, min(180, (int) config('slide-captcha.rotation.step_degrees', 15)));
+        return max(1, min(180, (int) config('captcha.rotation.step_degrees', 15)));
     }
 
     protected function randomRotation($step)
     {
-        $max = max($step, min(180, abs((int) config('slide-captcha.rotation.max_degrees', 90))));
+        $max = max($step, min(180, abs((int) config('captcha.rotation.max_degrees', 90))));
         $candidates = [];
 
         for ($angle = $step; $angle <= $max; $angle += $step) {
@@ -530,20 +530,20 @@ class CaptchaGenerator
 
         return $storage->temporaryUrl(
             $path,
-            Carbon::now()->addSeconds(max(1, (int) config('slide-captcha.temporary_url_ttl', 300))),
+            Carbon::now()->addSeconds(max(1, (int) config('captcha.temporary_url_ttl', 300))),
             ['ResponseContentType' => 'image/png']
         );
     }
 
     protected function cache()
     {
-        $store = config('slide-captcha.cache_store');
+        $store = config('captcha.cache_store');
 
         return $store ? Cache::store($store) : Cache::store();
     }
 
     protected function generatedStorage()
     {
-        return Storage::disk((string) config('slide-captcha.storage_disk', 's3'));
+        return Storage::disk((string) config('captcha.storage_disk', 's3'));
     }
 }
