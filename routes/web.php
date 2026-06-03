@@ -15,5 +15,8 @@ Route::prefix($prefix)
             ->name('slide-captcha.asset');
 
         Route::get('/new', [SlideCaptchaController::class, 'new'])->name('slide-captcha.new');
+        Route::get('/generated/{path}', [SlideCaptchaController::class, 'image'])
+            ->where('path', '.*')
+            ->name('slide-captcha.generated');
         Route::post('/verify', [SlideCaptchaController::class, 'verify'])->name('slide-captcha.verify');
     });

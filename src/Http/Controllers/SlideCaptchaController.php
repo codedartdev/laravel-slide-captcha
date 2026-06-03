@@ -7,7 +7,9 @@ use CodeDart\SlideCaptcha\Services\CaptchaValidator;
 use CodeDart\SlideCaptcha\Services\CaptchaDdosProtector;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Intervention\Image\ImageManager;
 use Throwable;
 
 class SlideCaptchaController extends Controller
@@ -120,11 +122,106 @@ class SlideCaptchaController extends Controller
         return response()->json($result);
     }
 
+    public function image(Request $request, $path)
+    {
+        if (! $request->hasValidSignature()) {
+            abort(403);
+        }
+
+        $path = $this->normalizeImagePath($path);
+
+        if (! $this->isAllowedGeneratedImagePath($path)) {
+            abort(404);
+        }
+
+        $storagePath = $this->generatedStoragePath($path);
+
+        try {
+            $contents = Storage::disk((string) config('captcha.storage_disk', 's3'))->get($storagePath);
+        } catch (Throwable $exception) {
+            abort(404);
+        }
+
+        if (! is_string($contents) || $contents === '') {
+            abort(404);
+        }
+
+        try {
+            $image = $this->readImage($contents);
+            $encoded = $this->encodePng($image);
+        } catch (Throwable $exception) {
+            abort(404);
+        }
+
+        return response($encoded, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, max-age=' . max(0, (int) config('captcha.temporary_url_ttl', 300)),
+        ]);
+    }
+
     protected function blockedResponse(array $decision)
     {
         $retryAfter = isset($decision['retry_after']) ? (int) $decision['retry_after'] : 60;
 
         return response()->json($this->ddos->blockedResponse($decision), 429)
             ->header('Retry-After', $retryAfter);
+    }
+
+    protected function normalizeImagePath($path)
+    {
+        return trim(str_replace('\\', '/', (string) $path), '/');
+    }
+
+    protected function isAllowedGeneratedImagePath($path)
+    {
+        return $path !== ''
+            && strpos($path, '..') === false
+            && substr($path, -4) === '.png';
+    }
+
+    protected function generatedStoragePath($path)
+    {
+        $generatedPath = trim((string) config('captcha.generated_path', 'slide-captcha/generated'), '/');
+
+        if ($generatedPath === '') {
+            return $path;
+        }
+
+        return $generatedPath . '/' . ltrim($path, '/');
+    }
+
+    protected function readImage($contents)
+    {
+        $manager = $this->imageManager();
+
+        if (method_exists($manager, 'read')) {
+            return $manager->read($contents);
+        }
+
+        return $manager->make($contents);
+    }
+
+    protected function imageManager()
+    {
+        if (class_exists('Intervention\\Image\\Drivers\\Gd\\Driver')) {
+            $driver = 'Intervention\\Image\\Drivers\\Gd\\Driver';
+
+            return new ImageManager(new $driver());
+        }
+
+        return new ImageManager(['driver' => 'gd']);
+    }
+
+    protected function encodePng($image)
+    {
+        if (method_exists($image, 'toPng')) {
+            return (string) $image->toPng();
+        }
+
+        if (method_exists($image, 'encode')) {
+            return (string) $image->encode('png');
+        }
+
+        abort(404);
     }
 }

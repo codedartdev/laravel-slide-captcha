@@ -7,6 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Intervention\Image\ImageManager;
 use RuntimeException;
@@ -73,8 +74,8 @@ class CaptchaGenerator
 
         return [
             'challenge_id' => $challengeId,
-            'background_url' => $this->temporaryUrl($storage, $backgroundFile),
-            'piece_url' => $this->temporaryUrl($storage, $pieceFile),
+            'background_url' => $this->imageUrl($backgroundFile, $generatedPath),
+            'piece_url' => $this->imageUrl($pieceFile, $generatedPath),
             'rotation_enabled' => $rotationEnabled,
             'rotation_step' => $rotationStep,
         ];
@@ -522,17 +523,25 @@ class CaptchaGenerator
         throw new RuntimeException('Não foi possível codificar a imagem do CAPTCHA em PNG.');
     }
 
-    protected function temporaryUrl($storage, $path)
+    protected function imageUrl($path, $generatedPath)
     {
-        if (! method_exists($storage, 'temporaryUrl')) {
-            throw new RuntimeException('O disco configurado para o CAPTCHA não suporta URLs temporárias.');
+        return URL::temporarySignedRoute(
+            'slide-captcha.generated',
+            Carbon::now()->addSeconds(max(1, (int) config('captcha.temporary_url_ttl', 300))),
+            ['path' => $this->relativeGeneratedPath($path, $generatedPath)]
+        );
+    }
+
+    protected function relativeGeneratedPath($path, $generatedPath)
+    {
+        $path = trim((string) $path, '/');
+        $generatedPath = trim((string) $generatedPath, '/');
+
+        if ($generatedPath !== '' && strpos($path, $generatedPath . '/') === 0) {
+            return substr($path, strlen($generatedPath) + 1);
         }
 
-        return $storage->temporaryUrl(
-            $path,
-            Carbon::now()->addSeconds(max(1, (int) config('captcha.temporary_url_ttl', 300))),
-            ['ResponseContentType' => 'image/png']
-        );
+        return $path;
     }
 
     protected function cache()

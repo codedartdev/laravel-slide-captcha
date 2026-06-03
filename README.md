@@ -2,7 +2,7 @@
 
 CAPTCHA visual self-hosted para Laravel, baseado no desafio de arrastar uma peça até a posição correta da imagem.
 
-O pacote gera um desafio, recorta uma peça da imagem, salva temporariamente os arquivos gerados em um disco privado, normalmente S3, e retorna URLs temporárias para o navegador. A posição correta fica somente no backend e é armazenada em cache por poucos segundos.
+O pacote gera um desafio, recorta uma peça da imagem, salva temporariamente os arquivos gerados em um disco privado, normalmente S3, e retorna URLs internas temporariamente assinadas para o navegador. A posição correta fica somente no backend e é armazenada em cache por poucos segundos.
 
 ## Introdução
 
@@ -26,7 +26,7 @@ O usuário vê uma imagem, arrasta a peça até o ponto correto, gira a peça qu
 - Composer
 - Extensão PHP `gd`
 - Cache configurado no Laravel
-- Disco de storage com suporte a URLs temporárias
+- Disco de storage privado legível pela aplicação
 - Recomendado: Redis para cache
 - Recomendado: S3 ou storage compatível com S3 para armazenar as imagens geradas
 
@@ -70,6 +70,7 @@ As rotas criadas pelo pacote são:
 GET  /slide-captcha/assets/slide-captcha.css
 GET  /slide-captcha/assets/slide-captcha.js
 GET  /slide-captcha/new
+GET  /slide-captcha/generated/{path}
 POST /slide-captcha/verify
 ```
 
@@ -241,7 +242,7 @@ Pasta dentro do disco configurado onde as imagens temporárias serão salvas. Pa
 
 `SLIDE_CAPTCHA_TEMPORARY_URL_TTL`
 
-Tempo de validade das URLs temporárias das imagens, em segundos. Padrão: `300`.
+Tempo de validade das URLs internas assinadas das imagens, em segundos. Padrão: `300`.
 
 `SLIDE_CAPTCHA_BACKGROUNDS_PATH`
 
@@ -508,7 +509,7 @@ AWS_ENDPOINT=
 AWS_USE_PATH_STYLE_ENDPOINT=false
 ```
 
-As imagens geradas são privadas. O navegador acessa essas imagens por URL temporária.
+As imagens geradas são privadas. O navegador acessa rotas internas assinadas do pacote; essas rotas leem a imagem no disco configurado, carregam com Intervention e retornam o PNG pela própria aplicação.
 
 O usuário ou role da AWS precisa ter permissão para:
 
@@ -1227,7 +1228,7 @@ Arquivo: `resources/views/contact/create.blade.php`
 2. A view renderiza o CAPTCHA.
 3. O JavaScript chama `GET /slide-captcha/new`.
 4. O pacote gera o desafio e salva as imagens temporárias no S3.
-5. O navegador recebe URLs temporárias para ver as imagens.
+5. O navegador recebe URLs internas assinadas para ver as imagens.
 6. O usuário arrasta a peça e, quando a rotação estiver ativa, gira a peça até encaixar.
 7. O JavaScript chama `POST /slide-captcha/verify`.
 8. Se estiver correto, o pacote retorna um token.
@@ -1250,6 +1251,7 @@ Procure por:
 slide-captcha.new
 slide-captcha.verify
 slide-captcha.asset
+slide-captcha.generated
 ```
 
 Se não aparecerem, limpe caches:
@@ -1268,9 +1270,9 @@ O JavaScript envia o CSRF usando a meta tag:
 
 Garanta que essa tag existe no `<head>` da página.
 
-### Erro: disco não suporta URL temporária
+### Erro: imagem do CAPTCHA não abre
 
-O pacote precisa gerar URLs temporárias para as imagens.
+O pacote precisa ler as imagens geradas no disco configurado.
 
 Use um disco S3:
 
@@ -1278,7 +1280,7 @@ Use um disco S3:
 SLIDE_CAPTCHA_STORAGE_DISK=s3
 ```
 
-E confirme se o S3 está configurado corretamente no Laravel.
+E confirme se o S3 está configurado corretamente no Laravel e se a aplicação tem permissão de leitura no caminho configurado em `SLIDE_CAPTCHA_GENERATED_PATH`.
 
 ### Erro: nenhuma imagem base encontrada
 
@@ -1353,7 +1355,7 @@ Motivos comuns:
 
 - Use `SLIDE_CAPTCHA_STORAGE_DISK=s3` em produção.
 - Mantenha as imagens geradas privadas.
-- Use URLs temporárias com TTL curto.
+- Use URLs internas assinadas com TTL curto.
 - Use Redis para cache.
 - Não valide apenas `slide_captcha_verified`; valide sempre `slide_captcha_token` com `SlideCaptchaVerified`.
 - Coloque a validação no controller ou em um Form Request.
@@ -1392,7 +1394,7 @@ php artisan route:list
 
 ### A imagem aparece quebrada
 
-Causa provável: a URL temporária expirou, o S3 está sem permissão ou o disco está mal configurado.
+Causa provável: a URL interna assinada expirou, o S3 está sem permissão de leitura ou o disco está mal configurado.
 
 Solução: confira as credenciais AWS e aumente temporariamente:
 
