@@ -38,6 +38,23 @@ class FormBindingTest extends TestCase
         $this->assertFalse(FormBinding::matches([], $this->request($form)));
     }
 
+    public function testLegacyFingerprintsAreRejectedAfterCanonicalizationUpgrade(): void
+    {
+        $legacy = hash_hmac('sha256', json_encode(['value' => []]), 'test-only-key');
+        $this->assertFalse(FormBinding::matches(['form_fingerprint' => $legacy], $this->request(['value' => []])));
+    }
+
+    public function testJsonObjectsCannotBeReplacedWithLists(): void
+    {
+        foreach (['{}', '{"0":"a"}'] as $object) {
+            $request = Request::create('/submit', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], '{"value":' . $object . '}');
+            $payload = ['form_fingerprint' => FormBinding::fingerprint(FormBinding::requestData($request))];
+            $this->assertTrue(FormBinding::matches($payload, $request));
+            $array = $object === '{}' ? [] : ['a'];
+            $this->assertFalse(FormBinding::matches($payload, $this->request(['value' => $array])));
+        }
+    }
+
     public function testWireValuesSurviveLaravelNormalization(): void
     {
         $form = ['password' => ' secret ', 'name' => ' Name ', 'empty' => ''];
@@ -59,6 +76,10 @@ class FormBindingTest extends TestCase
         $cache->put(CaptchaGenerator::challengeKey('challenge'), ['target_x' => 12, 'target_y' => 9, 'created_at' => time()]);
         $this->assertSame('form_data_required', $validator->validate('challenge', 12, 9)['reason']);
         $request = $this->request(['form_data' => ['password' => ' secret ']]);
+        $lock = $cache->lock('slide-captcha-challenge:' . hash('sha256', CaptchaGenerator::challengeKey('challenge')), 30);
+        $this->assertTrue($lock->get());
+        $this->assertSame('in_progress', $validator->validate('challenge', 12, 9, null, [], $request)['reason']);
+        $lock->release();
         $result = $validator->validate('challenge', 12, 9, null, [], $request);
         $this->assertTrue($result['success']);
         $payload = $cache->get(CaptchaValidator::verificationKey($result['verification_token']));

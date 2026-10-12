@@ -7,6 +7,14 @@ class InMemoryCache
     public $items = [];
 
     private $expires = [];
+    private $lockStore;
+
+    public function lock($name, $seconds = 0)
+    {
+        if (! $this->lockStore) $this->lockStore = new \Illuminate\Cache\ArrayStore();
+        return $this->lockStore->lock($name, $seconds);
+    }
+
 
     public function get($key, $default = null)
     {

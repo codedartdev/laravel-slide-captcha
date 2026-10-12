@@ -24,10 +24,10 @@ class CaptchaValidator
         try {
             $data = $request ? FormBinding::requestData($request) : [];
             if (array_key_exists('form_data', $data)) {
-                if (! is_array($data['form_data'])) {
+                if (! is_array($data['form_data']) && ! $data['form_data'] instanceof \stdClass) {
                     return $this->failure('invalid_form_data', 'Os valores do formulário são inválidos.');
                 }
-                $fingerprint = FormBinding::fingerprint($data['form_data']);
+                $fingerprint = FormBinding::fingerprint((array) $data['form_data']);
             } elseif (config('captcha.require_form_binding', true)) {
                 return $this->failure('form_data_required', 'Envie os valores do formulário para validar o CAPTCHA.');
             }
@@ -37,6 +37,19 @@ class CaptchaValidator
 
         $cache = $this->cache();
         $challengeKey = CaptchaGenerator::challengeKey($challengeId);
+        $lock = $cache->lock('slide-captcha-challenge:' . hash('sha256', $challengeKey), 30);
+        if (! $lock->get()) {
+            return $this->failure('in_progress', 'Este desafio está sendo validado.');
+        }
+        try {
+            return $this->validateLocked($cache, $challengeKey, $challengeId, $x, $y, $rotation, $movement, $fingerprint);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function validateLocked($cache, $challengeKey, $challengeId, $x, $y, $rotation, array $movement, $fingerprint)
+    {
         $challenge = $cache->get($challengeKey);
 
         if (! is_array($challenge)) {

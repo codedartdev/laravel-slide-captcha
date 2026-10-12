@@ -1,3 +1,8 @@
+## 0.3.1 — 2026-10-12
+
+- Preserve JSON object/list distinctions in form binding; reject fingerprints from older canonicalization. Pending tokens must be solved again after upgrade.
+- Serialize challenge validation with a cache lock to prevent concurrent issuance of multiple proofs.
+
 # Changelog
 
 ## 0.3.0

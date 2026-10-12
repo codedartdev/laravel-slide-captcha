@@ -17,11 +17,11 @@ final class FormBinding
         }
 
         if ($request->isJson() && $request->getContent() !== '') {
-            $data = json_decode($request->getContent(), true, 64, JSON_THROW_ON_ERROR);
-            if (! is_array($data)) {
+            $data = json_decode($request->getContent(), false, 64, JSON_THROW_ON_ERROR);
+            if (! $data instanceof \stdClass) {
                 throw new InvalidArgumentException('Expected a JSON object.');
             }
-            return array_replace($request->query->all(), $data);
+            return array_replace($request->query->all(), (array) $data);
         }
 
         if (strpos((string) $request->header('Content-Type'), 'application/x-www-form-urlencoded') === 0 && $request->getContent() !== '') {
@@ -41,7 +41,7 @@ final class FormBinding
         if ($key === '') {
             throw new InvalidArgumentException('An application key is required for form binding.');
         }
-        return hash_hmac('sha256', json_encode(self::canonical($data), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), $key);
+        return hash_hmac('sha256', 'v2:' . json_encode(self::canonical($data), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), $key);
     }
 
     public static function matches(array $payload, Request $request): bool
@@ -59,6 +59,14 @@ final class FormBinding
 
     private static function canonical($value)
     {
+        if ($value instanceof \stdClass) {
+            $properties = get_object_vars($value);
+            ksort($properties, SORT_STRING);
+            foreach ($properties as $key => $item) {
+                $properties[$key] = self::canonical($item);
+            }
+            return (object) $properties;
+        }
         if (is_array($value)) {
             // Preserve list ordering, but ignore object key ordering.
             if ($value !== [] && array_keys($value) !== range(0, count($value) - 1)) {
