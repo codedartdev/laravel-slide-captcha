@@ -1,5 +1,7 @@
 # Laravel Slide CAPTCHA
 
+**0.3.0 requires form-bound verification.** Read the [migration guide](#migration-to-030-bind-verification-to-form-values) before upgrading API clients.
+
 CAPTCHA visual self-hosted para Laravel, baseado no desafio de arrastar uma peça até a posição correta da imagem.
 
 O pacote gera um desafio, recorta uma peça da imagem, salva temporariamente os arquivos gerados em um disco privado, normalmente S3, e retorna URLs internas temporariamente assinadas para o navegador. A posição correta fica somente no backend e é armazenada em cache por poucos segundos.
@@ -1600,3 +1602,51 @@ php artisan route:list
 ```
 
 E confira as configurações de cache e S3 no `.env`.
+## Migration to 0.3.0: bind verification to form values
+
+`POST /slide-captcha/verify` now requires `form_data`: the exact JSON payload
+that will be submitted to the protected endpoint, excluding CAPTCHA fields and
+the CSRF token. Include passwords, confirmations, booleans and any other fields
+that the final request sends. Do not send a client-provided hash instead.
+
+```json
+{
+  "challenge_id": "challenge-id",
+  "x": 12,
+  "y": 9,
+  "rotation": 0,
+  "movement": [],
+  "form_data": {"email": "example@example.test", "password": "example-only", "remember": false}
+}
+```
+
+Submit the same form values together with `slide_captcha_token` and
+`slide_captcha_verified` to the final endpoint. The package rule
+`SlideCaptchaVerified` compares the entire form snapshot and consumes the token
+under a cache lock. Custom consumers must call
+`FormBinding::matches($cachedPayload, $request)` before accepting the token, and
+must consume the token atomically even on mismatch. Use a shared cache with
+atomic lock support on multi-instance deployments.
+
+Only an HMAC fingerprint is cached; `app.key` must be configured. Never log
+`form_data`, verification request bodies or passwords. The snapshot travels
+over HTTPS just like the final authentication request. JSON types, list ordering,
+whitespace, empty strings and field presence matter. Object key order does not.
+The comparison uses original request values, before Laravel input normalization.
+Only `_token`, `slide_captcha_token`, `slide_captcha_verified` and
+`slide_captcha_challenge_id` are excluded at the top level.
+
+The Blade widget reads its enclosing HTML form and invalidates its token on
+input/change. Simple uniquely named text fields are supported. For nested or
+repeated fields use a custom JSON API adapter with the exact final payload. File
+uploads require a separate binding strategy and are rejected. React/native clients
+must add `form_data` in their verification adapter and discard stale callbacks
+when the form changes; upgrading Composer alone does not update those clients.
+
+Deploy updated clients and the consumer together. Existing tokens must be solved
+again. `captcha.require_form_binding` defaults to `true`; setting it to `false`
+temporarily permits old unbound clients/tokens and therefore does not provide the
+new guarantee. A supplied snapshot is always checked, even in compatibility mode.
+
+This prevents moving one solved proof to different form values. It does not make
+the visual challenge itself resistant to automated solving.

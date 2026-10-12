@@ -39,6 +39,18 @@ namespace CodeDart\SlideCaptcha\Support {
     }
 }
 
+namespace CodeDart\SlideCaptcha\Rules {
+    function config($key = null, $default = null)
+    {
+        return \CodeDart\SlideCaptcha\Tests\Support\ConfigRepository::get($key, $default);
+    }
+
+    function request()
+    {
+        return \CodeDart\SlideCaptcha\Tests\Support\ConfigRepository::get('test.request');
+    }
+}
+
 namespace CodeDart\SlideCaptcha\Tests\Support {
     final class ConfigRepository
     {

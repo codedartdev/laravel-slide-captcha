@@ -68,6 +68,8 @@
         var checkButton = root.querySelector('[data-slide-captcha-check]');
         var challengeInput = root.querySelector('[data-slide-captcha-challenge-id]');
         var tokenInput = root.querySelector('[data-slide-captcha-token]');
+        var form = root.closest('form');
+        var formRevision = 0;
         var verifiedInput = root.querySelector('[data-slide-captcha-verified]');
 
         if (! stage || ! background || ! piece) {
@@ -179,7 +181,39 @@
             };
         }
 
+        function formData() {
+            var values = Object.create(null);
+            if (!form) { throw new Error('Place the CAPTCHA inside its form.'); }
+            new FormData(form).forEach(function (value, key) {
+                if (['_token', 'slide_captcha_token', 'slide_captcha_verified', 'slide_captcha_challenge_id'].indexOf(key) !== -1) { return; }
+                if (typeof value !== 'string' || key.indexOf('[') !== -1 || Object.prototype.hasOwnProperty.call(values, key)) {
+                    throw new Error('Use an API adapter for files, nested or repeated fields.');
+                }
+                values[key] = value;
+            });
+            return values;
+        }
+
+        if (form) {
+            ['input', 'change'].forEach(function (name) {
+                form.addEventListener(name, function (event) {
+                    if (root.contains(event.target)) { return; }
+                    formRevision++;
+                    clearValidation();
+                    if (root.classList.contains('is-success')) { loadChallenge(); }
+                });
+            });
+        }
+
         function verifyCurrentPosition() {
+            var snapshot;
+            try { snapshot = formData(); } catch (error) {
+                clearValidation();
+                setState('error');
+                dispatch('slide-captcha:error', error);
+                return;
+            }
+            var revision = formRevision;
             setState('loading');
 
             fetch(verifyUrl(), {
@@ -194,11 +228,17 @@
                     x: round(state.left * state.scaleX),
                     y: round(state.top * state.scaleY),
                     rotation: round(state.rotation),
+                    form_data: snapshot,
                     movement: state.movement
                 })
             })
                 .then(json)
                 .then(function (data) {
+                    if (revision !== formRevision || JSON.stringify(snapshot) !== JSON.stringify(formData())) {
+                        clearValidation();
+                        loadChallenge();
+                        return;
+                    }
                     if (data.success) {
                         if (tokenInput) {
                             tokenInput.value = data.verification_token || '';

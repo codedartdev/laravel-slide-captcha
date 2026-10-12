@@ -3,6 +3,7 @@
 namespace CodeDart\SlideCaptcha\Services;
 
 use CodeDart\SlideCaptcha\Support\MovementAnalyzer;
+use CodeDart\SlideCaptcha\Support\FormBinding;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -19,6 +20,21 @@ class CaptchaValidator
 
     public function validate($challengeId, $x, $y, $rotation = null, array $movement = [], Request $request = null)
     {
+        $fingerprint = null;
+        try {
+            $data = $request ? FormBinding::requestData($request) : [];
+            if (array_key_exists('form_data', $data)) {
+                if (! is_array($data['form_data'])) {
+                    return $this->failure('invalid_form_data', 'Os valores do formulário são inválidos.');
+                }
+                $fingerprint = FormBinding::fingerprint($data['form_data']);
+            } elseif (config('captcha.require_form_binding', true)) {
+                return $this->failure('form_data_required', 'Envie os valores do formulário para validar o CAPTCHA.');
+            }
+        } catch (Throwable $exception) {
+            return $this->failure('invalid_form_data', 'Os valores do formulário são inválidos.');
+        }
+
         $cache = $this->cache();
         $challengeKey = CaptchaGenerator::challengeKey($challengeId);
         $challenge = $cache->get($challengeKey);
@@ -90,10 +106,14 @@ class CaptchaValidator
         $this->forgetChallenge($cache, $challengeKey, $challenge);
 
         $verificationToken = bin2hex(random_bytes(32));
-        $cache->put(self::verificationKey($verificationToken), [
+        $verification = [
             'challenge_id' => $challengeId,
             'created_at' => time(),
-        ], 300);
+        ];
+        if ($fingerprint !== null) {
+            $verification['form_fingerprint'] = $fingerprint;
+        }
+        $cache->put(self::verificationKey($verificationToken), $verification, 300);
 
         return [
             'success' => true,

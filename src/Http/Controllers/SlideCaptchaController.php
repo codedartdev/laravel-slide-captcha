@@ -71,6 +71,7 @@ class SlideCaptchaController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
+            'form_data' => [config('captcha.require_form_binding', true) ? 'present' : 'sometimes', 'array'],
             'challenge_id' => ['required', 'string'],
             'x' => ['required', 'numeric'],
             'y' => ['required', 'numeric'],

@@ -3,6 +3,7 @@
 namespace CodeDart\SlideCaptcha\Rules;
 
 use CodeDart\SlideCaptcha\Services\CaptchaValidator;
+use CodeDart\SlideCaptcha\Support\FormBinding;
 use Illuminate\Contracts\Validation\Rule;
 use Illuminate\Support\Facades\Cache;
 
@@ -22,15 +23,20 @@ class SlideCaptchaVerified implements Rule
 
         $cache = $this->cache();
         $key = CaptchaValidator::verificationKey($value);
-        $payload = $cache->get($key);
-
-        if (! $payload) {
+        $lock = $cache->lock('slide-captcha-verification:' . hash('sha256', $key), 5);
+        if (! $lock->get()) {
             return false;
         }
-
-        $cache->forget($key);
-
-        return true;
+        try {
+            $payload = $cache->get($key);
+            if (! is_array($payload)) {
+                return false;
+            }
+            $cache->forget($key);
+            return FormBinding::matches($payload, request());
+        } finally {
+            $lock->release();
+        }
     }
 
     public function message()

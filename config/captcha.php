@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'require_form_binding' => true,
     'enabled' => env('SLIDE_CAPTCHA_ENABLED', true),
 
     'cache_store' => env('SLIDE_CAPTCHA_CACHE_STORE', null),
